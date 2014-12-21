@@ -1,0 +1,194 @@
+/*
+ * -------------------------------------------------------------------------
+ * Copyright (C) 2012  STMicroelectronics
+ * Author: Francesco M. Virlinzi  <francesco.virlinzi@st.com>
+ *
+ * May be copied or modified under the terms of the GNU General Public
+ * License V.2 ONLY.  See linux/COPYING for more information.
+ *
+ * -------------------------------------------------------------------------
+ */
+
+#include <linux/init.h>
+#include <linux/device.h>
+#include <linux/platform_device.h>
+#include <linux/suspend.h>
+#include <linux/errno.h>
+#include <linux/time.h>
+#include <linux/delay.h>
+#include <linux/irqflags.h>
+#include <linux/io.h>
+
+#include <linux/stm/stxh205.h>
+#include <linux/stm/sysconf.h>
+#include <linux/stm/platform.h>
+#include <linux/stm/gpio.h>
+#include <linux/stm/lpm.h>
+#include <asm/irq-ilc.h>
+
+#include "stm_hom.h"
+#include <linux/stm/poke_table.h>
+#include <linux/stm/synopsys_dwc_ddr32.h>
+
+
+#define DDR3SS_REG		0xfde50000
+
+#define PCLK	30000000
+#define BAUDRATE_VAL_M1(bps)    	\
+	((((bps * (1 << 14)) + (1 << 13)) / (PCLK / (1 << 6))))
+
+#define SBC_MBX				0xfe4b4000
+#define SBC_MBX_WRITE_STATUS(x)		(SBC_MBX + 0x4 + 0x4 * (x))
+
+#define SBC_GPIO_PORT(_nr)		(0xfe610000 + (_nr) * 0x1000)
+
+#define STXH205_SYSCFG_BANK0		0xfe600000
+#define STXH205_SYSCFG_BANK3		0xfd541000
+
+#ifndef CONFIG_PM_DEEP_STANDBY
+#if defined(CONFIG_SH_ST_B2064C_BOARD) ||	\
+	defined(CONFIG_SH_ST_B2067C_BOARD) ||	\
+	defined(CONFIG_SH_ST_B2075) ||		\
+	defined(CONFIG_SH_ST_B2141)
+#define LMI_RET_GPIO_PORT		3
+#define LMI_RET_GPIO_PIN		2
+#else
+#define LMI_RET_GPIO_PORT		3
+#define LMI_RET_GPIO_PIN		3
+#endif
+
+#define LMI_RETENTION_PIN	stm_gpio(LMI_RET_GPIO_PORT, LMI_RET_GPIO_PIN)
+
+static unsigned long stxh205_hom_table[] __cacheline_aligned = {
+
+/* use sys config  reset bit#2 of sys_config169 address 0xfda50114*/
+UPDATE32(0xfda50114, ~(1 << 2), 0),
+
+/*check lmi status sys_status SYSTEM_STATUS154 @0xfda500D8 */
+/*check bit#2 set */
+
+WHILE_NE32(0xfda500D8, 0x4, 0x0),
+
+synopsys_ddr32_in_hom(DDR3SS_REG),
+
+#ifndef CONFIG_SH_ST_B2141
+/*
+ * Enable retention mode gpio
+ *
+ */
+POKE32(SBC_GPIO_PORT(LMI_RET_GPIO_PORT) + STM_GPIO_REG_CLR_POUT,
+	 1 << LMI_RET_GPIO_PIN),
+#endif
+
+/*
+ * Send message 'ENTER_PASSIVE' (0x5)
+ */
+POKE32(SBC_MBX_WRITE_STATUS(0), 0x5),
+#ifdef CONFIG_HOM_SELF_RESET
+POKE32(STXH205_SYSCFG_BANK3 + 0x188, 0),
+POKE32(STXH205_SYSCFG_BANK0 + 0x3c, 0),
+#endif
+/* END. */
+END_MARKER,
+
+};
+#endif /*CONFIG_PM_DEEP_STANDBY*/
+
+static void __iomem *early_console_base;
+static struct stm_wakeup_devices stxh205_wkd;
+
+static void stxh205_hom_early_console(void)
+{
+
+	writel(0x1189 & ~0x80, early_console_base + 0x0c); /* ctrl */
+	writel(BAUDRATE_VAL_M1(115200), early_console_base); /* baud */
+	writel(20, early_console_base + 0x1c);  /* timeout */
+	writel(1, early_console_base + 0x10); /* int */
+	writel(0x1189, early_console_base + 0x0c); /* ctrl */
+
+	mdelay(100);
+
+	pr_info("Early console ready\n");
+}
+
+static int stxh205_hom_begin(void)
+{
+	pr_info("stm: pm: Analyzing the wakeup devices\n");
+
+	stm_check_wakeup_devices(&stxh205_wkd);
+	return 0;
+}
+
+static int stxh205_hom_prepare(void)
+{
+	stm_notify_wakeup_devices(&stxh205_wkd);
+
+	stm_freeze_board(&stxh205_wkd);
+#ifdef CONFIG_STM_LPM
+	stm_lpm_config_reboot(stm_lpm_reboot_with_ddr_self_refresh);
+#endif
+
+#ifdef CONFIG_PM_DEEP_STANDBY
+        *((int *)(0xfe4b4004)) = 0x5;
+        while(1);
+#endif
+
+	return 0;
+}
+
+static int stxh205_hom_complete(void)
+{
+	/* Enable the INTC2 */
+	writel(7, 0xfda30000 + 0x00);	/* INTPRI00 */
+	writel(1, 0xfda30000 + 0x60);	/* INTMSKCLR00 */
+
+	stm_restore_board(&stxh205_wkd);
+	stm_set_wakeup_reason(stm_retrieve_wakeup_reason());
+
+	return 0;
+}
+
+static struct stm_mem_hibernation stxh205_hom = {
+#ifndef CONFIG_PM_DEEP_STANDBY
+	.tbl_addr = (unsigned long)stxh205_hom_table,
+	.tbl_size = DIV_ROUND_UP(ARRAY_SIZE(stxh205_hom_table) *
+			sizeof(long), L1_CACHE_BYTES),
+#endif
+	.ops.begin = stxh205_hom_begin,
+	.ops.prepare = stxh205_hom_prepare,
+	.ops.complete = stxh205_hom_complete,
+};
+
+static int __init hom_stxh205_setup(void)
+{
+	int ret;
+#ifndef CONFIG_PM_DEEP_STANDBY
+#ifndef CONFIG_SH_ST_B2141
+	ret = gpio_request(LMI_RETENTION_PIN, "LMI retention mode");
+	if (ret) {
+		pr_err("stm: pm: hom: GPIO for retention mode not acquired\n");
+		return ret;
+	};
+
+	gpio_direction_output(LMI_RETENTION_PIN, 1);
+#endif
+#endif
+	ret = stm_hom_register(&stxh205_hom);
+#ifndef CONFIG_PM_DEEP_STANDBY
+#ifndef CONFIG_SH_ST_B2141
+	if (ret) {
+		gpio_free(LMI_RETENTION_PIN);
+		return ret;
+	}
+#endif
+#endif
+	early_console_base = (void *)
+		ioremap(stm_asc_console_device->resource[0].start, 0x1000);
+	pr_info("stm: pm: hom: Early console @ %p\n",
+		early_console_base);
+	stxh205_hom.early_console = stxh205_hom_early_console;
+
+	return ret;
+}
+
+module_init(hom_stxh205_setup);

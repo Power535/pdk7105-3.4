@@ -1,0 +1,24 @@
+***************
+*** 60,65 ****
+  #define LMI_RETENTION_PIN	stm_gpio(LMI_RET_GPIO_PORT, LMI_RET_GPIO_PIN)
+  
+  static unsigned long stxh205_hom_table[] __cacheline_aligned = {
+  synopsys_ddr32_in_hom(DDR3SS_REG),
+  
+  /*
+--- 60,74 ----
+  #define LMI_RETENTION_PIN	stm_gpio(LMI_RET_GPIO_PORT, LMI_RET_GPIO_PIN)
+  
+  static unsigned long stxh205_hom_table[] __cacheline_aligned = {
++ 
++ /* use sys config  reset bit#2 of sys_config169 address 0xfda50114*/
++ UPDATE32(0xfda50114, ~(1 << 2), 0),
++ 
++ /*check lmi status sys_status SYSTEM_STATUS154 @0xfda500D8 */
++ /*check bit#2 set */
++ 
++ WHILE_NE32(0xfda500D8, 0x4, 0x0),
++ 
+  synopsys_ddr32_in_hom(DDR3SS_REG),
+  
+  /*

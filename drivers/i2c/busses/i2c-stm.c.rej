@@ -1,0 +1,41 @@
+***************
+*** 114,132 ****
+  #define NANOSEC_PER_SEC			1000000000
+  
+  /* Standard I2C timings */
+- #define REP_START_HOLD_TIME_NORMAL	4000
+- #define START_HOLD_TIME_NORMAL		4000
+- #define REP_START_SETUP_TIME_NORMAL	4700
+- #define DATA_SETUP_TIME_NORMAL		 250
+- #define STOP_SETUP_TIME_NORMAL		4000
+- #define BUS_FREE_TIME_NORMAL		4700
+- 
+- #define REP_START_HOLD_TIME_FAST	 600
+- #define START_HOLD_TIME_FAST		 600
+- #define REP_START_SETUP_TIME_FAST	 600
+- #define DATA_SETUP_TIME_FAST		 100
+- #define STOP_SETUP_TIME_FAST		 600
+- #define BUS_FREE_TIME_FAST		1300
+  
+  /* Define for glitch suppression support */
+  #ifdef CONFIG_I2C_STM_GLITCH_SUPPORT
+--- 114,132 ----
+  #define NANOSEC_PER_SEC			1000000000
+  
+  /* Standard I2C timings */
++ #define REP_START_HOLD_TIME_NORMAL	4500
++ #define START_HOLD_TIME_NORMAL		4500
++ #define REP_START_SETUP_TIME_NORMAL	5300
++ #define DATA_SETUP_TIME_NORMAL		 300
++ #define STOP_SETUP_TIME_NORMAL		8000
++ #define BUS_FREE_TIME_NORMAL		5000
++ 
++ #define REP_START_HOLD_TIME_FAST	 660
++ #define START_HOLD_TIME_FAST		 660
++ #define REP_START_SETUP_TIME_FAST	 660
++ #define DATA_SETUP_TIME_FAST		 110
++ #define STOP_SETUP_TIME_FAST		 660
++ #define BUS_FREE_TIME_FAST		1500
+  
+  /* Define for glitch suppression support */
+  #ifdef CONFIG_I2C_STM_GLITCH_SUPPORT
